@@ -4,6 +4,9 @@ out vec4 FragColor;
 in vec2 TexCoord;
 in vec3 ourColor;
 
+uniform sampler2D webcam;
+uniform sampler2D feedback;
+
 uniform int julia_mode;
 uniform float zoom;
 uniform float x_pan;
@@ -11,7 +14,7 @@ uniform float y_pan;
 uniform float x_offset;
 uniform float y_offset;
 
-uniform sampler2D texture1;
+
 
 uniform vec2 julia;
 
@@ -74,7 +77,8 @@ vec3 rgb(float hue){
 void main()
 {
 
-    vec4 outputColor = texture(texture1, TexCoord);
+    //vec4 outputColor = texture(feedback, TexCoord);
+    vec4 outputColor = mix(texture(feedback, TexCoord), texture(webcam, TexCoord), 0.5);
 
     float x = 0.0;
     float y = 0.0;
@@ -131,8 +135,10 @@ void main()
         x = xx - yy + c1;
         y = xy+xy + c2;
 
-        if(image_mode && x > 0.f && x < 1.f && y > 0.0 && y < 1.0){
-            vec4 tmp = texture(texture1, vec2(x,y));
+        if(image_mode && x > 0.f  && y > 0.0){
+        //if(image_mode && x*y > 1.0f){
+            //vec4 tmp = texture(feedback, vec2(x,y));
+            vec4 tmp = mix(texture(feedback, vec2(x,y)), texture(webcam, vec2(x,y)), 0.5);
             if(tmp[0] > 0.0){
                 outputColor.rgba = tmp;
                 flag = 1;

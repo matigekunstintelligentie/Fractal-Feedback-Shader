@@ -1,6 +1,7 @@
-//g++ fractalRender.cpp -o fractalRender glad.c -lglfw -lGL -lX11 -lpthread -lXrandr -lXi -ldl -lGLU -lGL `pkg-config --cflags --libs opencv`
+//g++ fractalRender.cpp -o fractalRender glad.c -lglfw -lGL -lX11 -lpthread -lXrandr -lXi -ldl -lGLU -lGL `pkg-config --cflags --libs opencv glm`
 // changed from <"glad/glad.h"> also in glad.cpp download from https://glad.dav1d.de/
 #include "glad/glad.h"
+#include "camera.h"
 #include <GLFW/glfw3.h>
 #include <math.h>
 #include "./shaders_s.h"
@@ -10,6 +11,9 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <iostream>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 using namespace std;
 using namespace cv;
@@ -28,12 +32,14 @@ float y_pan = 0.0;
 float x_offset = -1920.f/2.0;
 float y_offset = -1080.f/2.0;
 bool record = false;
+bool use_feedback = true;
 
-
+Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
 
 
 FILE *ffmpeg = popen("/usr/bin/ffmpeg -vcodec rawvideo -f rawvideo -y -pix_fmt rgba -s 1920x1080 -i pipe:0 -vcodec h264 -r 24 out.mp4", "w");
 int* buffer = new int[SCR_WIDTH*SCR_HEIGHT];
+int* buffer2 = new int[SCR_WIDTH*SCR_HEIGHT];
 
 int main()
 {
@@ -46,6 +52,7 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    //glfwWindowHint(GLFW_SAMPLES, 4);
 
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
@@ -93,7 +100,7 @@ int main()
     };
 
 
-
+    //glEnable(GL_MULTISAMPLE);
 
     unsigned int VBO, VAO, EBO;
     glGenVertexArrays(1, &VAO);
@@ -129,14 +136,14 @@ int main()
 
 
 
+    Mat webcam_image = imread("images/Laurens.png");
+    Mat feedback_image = imread("images/klaas.png");
 
-    // image = imread("images/image.png");
 
 
-
-    unsigned int texture;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
+    unsigned int webcam, feedback;
+    glGenTextures(1, &webcam);
+    glBindTexture(GL_TEXTURE_2D, webcam);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -144,16 +151,36 @@ int main()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.cols, image.rows, 0,
-                GL_BGR, GL_UNSIGNED_BYTE, image.data);
+    // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.cols, image.rows, 0,
+    //             GL_BGR, GL_UNSIGNED_BYTE, image.data);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, webcam_image.cols, webcam_image.rows, 0, GL_BGR, GL_UNSIGNED_BYTE, webcam_image.data);
     glGenerateMipmap(GL_TEXTURE_2D);
-    glUniform1i(glGetUniformLocation(ourShader.ID, "texture1"), 0);
 
+
+
+
+
+    glGenTextures(1, &feedback);
+    glBindTexture(GL_TEXTURE_2D, feedback);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.cols, image.rows, 0,
+    //             GL_BGR, GL_UNSIGNED_BYTE, image.data);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, feedback_image.cols, feedback_image.rows, 0, GL_BGR, GL_UNSIGNED_BYTE, feedback_image.data);
+    glGenerateMipmap(GL_TEXTURE_2D);
 
 
 
     ourShader.use();
+    glUniform1i(glGetUniformLocation(ourShader.ID, "webcam"), 0);
+    glUniform1i(glGetUniformLocation(ourShader.ID, "feedback"), 1);
+
+
     int juliaModeLocation = glGetUniformLocation(ourShader.ID, "julia_mode");
     glUniform1i(juliaModeLocation, 1);
 
@@ -174,7 +201,6 @@ int main()
 
     int juliaLocation = glGetUniformLocation(ourShader.ID, "julia");
 
-
     // render loop
     // -----------
     while (!glfwWindowShouldClose(window))
@@ -189,12 +215,19 @@ int main()
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, webcam);
         success = cap.read(image);
         flip(image, image, 0);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.cols, image.rows, 0, GL_BGR, GL_UNSIGNED_BYTE, image.data);
 
 
-        glBindTexture(GL_TEXTURE_2D, texture);
+
+
+
+
+
+
 
 
         // render the triangle
@@ -203,7 +236,7 @@ int main()
         float timeValue = glfwGetTime();
         float sine = cos(timeValue) / 2.0f + 0.5f + sin(timeValue)*0.5;
         float cosine = sin(timeValue) / 2.0f + 0.5f + 0.6*sin(timeValue + 0.1);
-        glUniform2f(juliaLocation, -0.8 + sine*0.5, 0.156 + cosine*0.5);
+        glUniform2f(juliaLocation, -0.285 + sine*0.1, 0.01 + cosine*0.1);
 
         glUniform1f(zoomLocation, zoom);
         glUniform1f(x_panLocation, x_pan);
@@ -214,8 +247,6 @@ int main()
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-
-
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
         glfwSwapBuffers(window);
@@ -224,7 +255,15 @@ int main()
             fwrite(buffer, sizeof(int)*SCR_WIDTH*SCR_HEIGHT, 1, ffmpeg);
         }
 
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, feedback);
+        if(use_feedback){
+            glReadPixels(0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, buffer2);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer2);
+        }
+
         glfwPollEvents();
+
     }
 
     // optional: de-allocate all resources once they've outlived their purpose:
